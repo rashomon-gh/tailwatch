@@ -108,6 +108,8 @@ impl NetworkMonitor {
 
     /// Get all device paths from NetworkManager
     async fn get_devices(&self) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        use zbus::zvariant::OwnedObjectPath;
+
         let proxy = Proxy::new(
             &self.connection,
             NM_BUS_NAME,
@@ -116,9 +118,16 @@ impl NetworkMonitor {
         )
         .await?;
 
-        let devices = proxy
-            .call::<&str, (), Vec<String>>("GetDevices", &())
+        let device_paths: Vec<OwnedObjectPath> = proxy
+            .call::<&str, (), Vec<OwnedObjectPath>>("GetDevices", &())
             .await?;
+
+        // Convert OwnedObjectPath to String
+        let devices = device_paths
+            .into_iter()
+            .map(|p| p.as_str().to_string())
+            .collect();
+
         Ok(devices)
     }
 
