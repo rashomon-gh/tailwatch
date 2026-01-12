@@ -91,39 +91,39 @@ pub fn tailscale_down() -> TailscaleResult<()> {
     }
 }
 
-/// Check if Tailscale is currently running (connected)
-pub fn is_tailscale_running() -> bool {
-    debug!("Checking if Tailscale is currently running");
+// ///Check if Tailscale is currently running (connected)
+// pub fn is_tailscale_running() -> bool {
+//     debug!("Checking if Tailscale is currently running");
 
-    if !is_tailscale_installed() {
-        debug!("Tailscale not installed, cannot check running status");
-        return false;
-    }
+//     if !is_tailscale_installed() {
+//         debug!("Tailscale not installed, cannot check running status");
+//         return false;
+//     }
 
-    let output = Command::new("tailscale")
-        .args(["status", "-json"])
-        .output();
+//     let output = Command::new("tailscale")
+//         .args(["status", "-json"])
+//         .output();
 
-    match output {
-        Ok(out) => {
-            if out.status.success() {
-                if let Ok(text) = std::str::from_utf8(&out.stdout) {
-                    if let Ok(json) = json::parse(text) {
-                        let running = json["BackendState"]
-                            .as_str()
-                            .map(|s| s == "Running")
-                            .unwrap_or(false);
-                        debug!("Tailscale running status: {}", running);
-                        return running;
-                    }
-                }
-            }
-            debug!("Tailscale status command returned non-success");
-            false
-        }
-        Err(e) => {
-            debug!("Failed to check Tailscale status: {}", e);
-            false
-        }
-    }
-}
+//     match output {
+//         Ok(out) => {
+//             if out.status.success() {
+//                 if let Ok(text) = std::str::from_utf8(&out.stdout) {
+//                     if let Ok(json) = json::parse(text) {
+//                         let running = json["BackendState"]
+//                             .as_str()
+//                             .map(|s| s == "Running")
+//                             .unwrap_or(false);
+//                         debug!("Tailscale running status: {}", running);
+//                         return running;
+//                     }
+//                 }
+//             }
+//             debug!("Tailscale status command returned non-success");
+//             false
+//         }
+//         Err(e) => {
+//             debug!("Failed to check Tailscale status: {}", e);
+//             false
+//         }
+//     }
+// }
