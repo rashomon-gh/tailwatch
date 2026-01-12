@@ -31,6 +31,7 @@ const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
 
 impl DaemonState {
     pub fn new() -> Self {
+        info!("Initializing daemon state");
         Self {
             current_state: Arc::new(Mutex::new(StateInner {
                 network: NetworkState::default(),
@@ -44,14 +45,29 @@ impl DaemonState {
     /// Update the network state
     pub async fn update_network(&self, network: NetworkState) {
         let mut state = self.current_state.lock().await;
-        debug!("Network state updated: {:?}", network);
+        debug!(
+            "Network state updated: ethernet={}, wifi_ssid={:?}",
+            network.ethernet_active, network.wifi_ssid
+        );
         state.network = network;
     }
 
     /// Evaluate whether Tailscale should be disabled based on current network state
     pub fn should_disable_tailscale(network: &NetworkState) -> bool {
-        // Disable if ethernet is active OR connected to blocked WiFi SSID
-        network.ethernet_active || network.wifi_ssid.as_deref() == Some(BLOCKED_WIFI_SSID)
+        let should_disable = network.ethernet_active
+            || network.wifi_ssid.as_deref() == Some(BLOCKED_WIFI_SSID);
+
+        if should_disable {
+            debug!(
+                "Tailscale should be DISABLED: ethernet active={}, blocked wifi={}",
+                network.ethernet_active,
+                network.wifi_ssid.as_deref() == Some(BLOCKED_WIFI_SSID)
+            );
+        } else {
+            debug!("Tailscale should be ENABLED: no blocking conditions");
+        }
+
+        should_disable
     }
 
     /// Check the current state and update Tailscale if needed
@@ -60,26 +76,38 @@ impl DaemonState {
         let should_disable = Self::should_disable_tailscale(&state.network);
 
         debug!(
-            "Evaluating: ethernet={}, wifi_ssid={:?}, should_disable={}",
-            state.network.ethernet_active, state.network.wifi_ssid, should_disable
+            "Evaluating: ethernet={}, wifi_ssid={:?}, should_disable={}, current_enabled={}",
+            state.network.ethernet_active, state.network.wifi_ssid, should_disable, state.tailscale_enabled
         );
 
         // If the desired state matches the current state, nothing to do
         if should_disable == !state.tailscale_enabled {
-            debug!("Tailscale state already correct (enabled={})", state.tailscale_enabled);
+            debug!(
+                "No change needed: Tailscale is already {}",
+                if state.tailscale_enabled { "enabled" } else { "disabled" }
+            );
             return Ok(());
         }
 
+        let desired_state = !should_disable;
+        info!(
+            "State change requested: {} → {}",
+            if state.tailscale_enabled { "enabled" } else { "disabled" },
+            if desired_state { "enabled" } else { "disabled" }
+        );
+
         // Set pending state and record change time
-        state.pending_state = Some(!should_disable);
+        state.pending_state = Some(desired_state);
         state.last_change_time = Some(Instant::now());
 
+        info!("Starting {}s debounce timer for state transition", DEBOUNCE_DURATION.as_secs());
         drop(state);
 
         // Spawn debounce task
         let state_clone = self.current_state.clone();
         tokio::spawn(async move {
             sleep(DEBOUNCE_DURATION).await;
+            debug!("Debounce timer elapsed, applying pending state");
             apply_pending_state_impl(state_clone).await;
         });
 
@@ -93,10 +121,14 @@ impl DaemonState {
 
         let should_disable = Self::should_disable_tailscale(&network);
 
-        info!(
-            "Initial state: ethernet={}, wifi_ssid={:?}, should_disable={}",
-            state.network.ethernet_active, state.network.wifi_ssid, should_disable
-        );
+        info!("═══════════════════════════════════════");
+        info!("Initial network assessment:");
+        info!("  Ethernet active: {}", network.ethernet_active);
+        info!("  WiFi SSID: {:?}", network.wifi_ssid);
+        info!("  Blocked SSID detected: {}",
+            network.wifi_ssid.as_deref() == Some(BLOCKED_WIFI_SSID));
+        info!("  Should disable Tailscale: {}", should_disable);
+        info!("═══════════════════════════════════════");
 
         if should_disable {
             info!("Initial state: Disabling Tailscale");
@@ -128,8 +160,11 @@ async fn apply_pending_state_impl(state: Arc<Mutex<StateInner>>) {
 
     // Check if we still have a pending state
     let Some(desired_enabled) = inner.pending_state else {
+        debug!("No pending state to apply (may have been cancelled)");
         return;
     };
+
+    debug!("Applying pending state: enable={}", desired_enabled);
 
     // Clear the pending state
     inner.pending_state = None;
@@ -140,35 +175,40 @@ async fn apply_pending_state_impl(state: Arc<Mutex<StateInner>>) {
 
     if current_desired != desired_enabled {
         // State changed during debounce, restart debounce
-        info!("Network state changed during debounce, restarting debounce timer");
+        info!(
+            "⚠ Network state changed during debounce (wanted: enable={}, now should: enable={}), restarting timer",
+            desired_enabled, current_desired
+        );
         inner.pending_state = Some(current_desired);
         inner.last_change_time = Some(Instant::now());
         let state_clone = state.clone();
         drop(inner);
 
         sleep(DEBOUNCE_DURATION).await;
+        debug!("Restarted debounce timer completed, re-evaluating");
         Box::pin(apply_pending_state_impl(state_clone)).await;
         return;
     }
 
+    info!("✓ Debounce passed, applying state change: enable={}", desired_enabled);
+
     // Apply the state change
     if desired_enabled {
-        info!("Enabling Tailscale");
         match tailscale_up() {
             Ok(()) => {
                 inner.tailscale_enabled = true;
-                info!("Tailscale enabled successfully");
+                info!("✓ Tailscale state transition complete: ENABLED");
             }
             Err(e) => {
                 error!("Failed to enable Tailscale: {}", e);
+                inner.tailscale_enabled = false; // Assume still disabled
             }
         }
     } else {
-        info!("Disabling Tailscale");
         match tailscale_down() {
             Ok(()) => {
                 inner.tailscale_enabled = false;
-                info!("Tailscale disabled successfully");
+                info!("✓ Tailscale state transition complete: DISABLED");
             }
             Err(e) => {
                 warn!("Failed to disable Tailscale: {}", e);

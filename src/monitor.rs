@@ -19,60 +19,89 @@ pub struct NetworkMonitor {
     connection: Connection,
     state: DaemonState,
     last_state: NetworkState,
+    poll_count: u64,
 }
 
 impl NetworkMonitor {
     /// Create a new network monitor
     pub async fn new(state: DaemonState) -> Result<Self, Box<dyn std::error::Error>> {
+        info!("Connecting to NetworkManager via D-Bus");
         let connection = Connection::system().await?;
+        info!("Successfully connected to system D-Bus");
 
         Ok(Self {
             connection,
             state,
             last_state: NetworkState::default(),
+            poll_count: 0,
         })
     }
 
     /// Get the current network state
     pub async fn get_network_state(&self) -> NetworkState {
         let mut network_state = NetworkState::default();
+        let mut active_devices = 0;
 
         // Get all devices from NetworkManager
         let devices = match self.get_devices().await {
             Ok(d) => d,
             Err(e) => {
-                error!("Failed to get devices: {}", e);
+                error!("Failed to get devices from NetworkManager: {}", e);
                 return network_state;
             }
         };
 
-        debug!("Found {} devices", devices.len());
+        debug!("Found {} network devices", devices.len());
+        let total_devices = devices.len();
 
         // Check each device
         for device_path in devices {
             if let Ok(device) = self.get_device_proxy(&device_path).await {
                 if let Ok(device_type) = self.get_device_type(&device).await {
                     // Only consider active devices
-                    if self.is_device_active(&device).await.unwrap_or(false) {
-                        match device_type {
-                            NM_DEVICE_TYPE_ETHERNET => {
-                                info!("Active ethernet device found: {}", device_path);
-                                network_state.ethernet_active = true;
-                            }
-                            NM_DEVICE_TYPE_WIFI => {
-                                if let Some(ssid) = self.get_wifi_ssid(&device_path).await {
-                                    info!("Active WiFi device: {}, SSID: {:?}", device_path, ssid);
-                                    network_state.wifi_ssid = Some(ssid);
+                    match self.is_device_active(&device).await {
+                        Ok(true) => {
+                            active_devices += 1;
+                            match device_type {
+                                NM_DEVICE_TYPE_ETHERNET => {
+                                    info!("📷 Active ethernet device detected: {}", device_path);
+                                    network_state.ethernet_active = true;
+                                }
+                                NM_DEVICE_TYPE_WIFI => {
+                                    if let Some(ssid) = self.get_wifi_ssid(&device_path).await {
+                                        info!(
+                                            "📶 Active WiFi device: {}, SSID: {:?}",
+                                            device_path, ssid
+                                        );
+                                        network_state.wifi_ssid = Some(ssid);
+                                    }
+                                }
+                                _ => {
+                                    debug!(
+                                        "Ignoring device type {} on {}",
+                                        device_type, device_path
+                                    );
                                 }
                             }
-                            _ => {
-                                debug!("Ignoring device type {} on {}", device_type, device_path);
-                            }
+                        }
+                        Ok(false) => {
+                            debug!(
+                                "Device {} not active (disconnected/Unavailable)",
+                                device_path
+                            );
+                        }
+                        Err(e) => {
+                            warn!("Failed to check active state for {}: {}", device_path, e);
                         }
                     }
                 }
             }
         }
+
+        debug!(
+            "Network scan complete: {}/{} devices active",
+            active_devices, total_devices
+        );
 
         network_state
     }
@@ -142,15 +171,18 @@ impl NetworkMonitor {
         let ap_path: String = match wifi_proxy.get_property("ActiveAccessPoint").await {
             Ok(p) => p,
             Err(e) => {
-                debug!("No active access point: {}", e);
+                debug!("No active access point for {}: {}", device_path, e);
                 return None;
             }
         };
 
         // Skip if it's the "/" (no access point)
         if ap_path == "/" {
+            debug!("WiFi device {} has no active access point", device_path);
             return None;
         }
+
+        debug!("WiFi device {} connected to access point: {}", device_path, ap_path);
 
         // Get the SSID from the access point
         let ap_proxy = match Proxy::new(
@@ -178,20 +210,52 @@ impl NetworkMonitor {
         };
 
         // Convert bytes to String (SSID is UTF-8)
-        String::from_utf8(ssid_bytes).ok()
+        match String::from_utf8(ssid_bytes) {
+            Ok(ssid) => {
+                debug!("Retrieved SSID: {:?}", ssid);
+                Some(ssid)
+            }
+            Err(e) => {
+                warn!("Failed to parse SSID as UTF-8: {}", e);
+                None
+            }
+        }
     }
 
     /// Monitor for network changes and update state accordingly
     pub async fn monitor_network_changes(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        info!("Starting network monitoring");
+        info!("═══════════════════════════════════════");
+        info!("Starting network monitoring loop");
+        info!("Polling interval: 2 seconds");
+        info!("Blocked SSID: \"tue-wpa2\"");
+        info!("═══════════════════════════════════════");
 
         loop {
+            self.poll_count += 1;
+
+            // Log heartbeat every 30 polls (1 minute)
+            if self.poll_count % 30 == 0 {
+                info!(
+                    "💓 Heartbeat: Uptime: {} polls, Current state: ethernet={}, wifi={:?}",
+                    self.poll_count,
+                    self.last_state.ethernet_active,
+                    self.last_state.wifi_ssid
+                );
+            }
+
             // Get the new network state
             let network_state = self.get_network_state().await;
 
             // Check if state changed
             if network_state != self.last_state {
-                info!("Network state changed from {:?} to {:?}", self.last_state, network_state);
+                info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                info!("⚠ Network state DETECTED!");
+                info!("  Previous: ethernet={}, wifi={:?}",
+                    self.last_state.ethernet_active, self.last_state.wifi_ssid);
+                info!("  Current:  ethernet={}, wifi={:?}",
+                    network_state.ethernet_active, network_state.wifi_ssid);
+                info!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+
                 self.last_state = network_state.clone();
                 self.state.update_network(network_state).await;
 
@@ -199,6 +263,13 @@ impl NetworkMonitor {
                 if let Err(e) = self.state.evaluate_and_update().await {
                     error!("Failed to update Tailscale state: {}", e);
                 }
+            } else {
+                debug!(
+                    "Poll #{}: No change (ethernet={}, wifi={:?})",
+                    self.poll_count,
+                    network_state.ethernet_active,
+                    network_state.wifi_ssid
+                );
             }
 
             // Poll every 2 seconds
