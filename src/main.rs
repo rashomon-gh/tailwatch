@@ -2,6 +2,7 @@ mod monitor;
 mod state;
 mod tailscale;
 
+use clap::Parser;
 use monitor::NetworkMonitor;
 use state::DaemonState;
 use tracing::{error, info};
@@ -10,8 +11,22 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// Network-aware Tailscale management daemon
+#[derive(Parser, Debug)]
+#[command(name = "tailwatch")]
+#[command(version = VERSION)]
+#[command(about = "Network-aware Tailscale management daemon", long_about = None)]
+struct Args {
+    /// WiFi SSID that should trigger Tailscale to be disabled
+    #[arg(short, long)]
+    blocked_ssid: String,
+}
+
 #[tokio::main]
 async fn main() {
+    // Parse command-line arguments first
+    let args = Args::parse();
+
     // Initialize logging to systemd journal
     let layer = Layer::new().unwrap();
 
@@ -23,6 +38,7 @@ async fn main() {
     info!("═══════════════════════════════════════");
     info!("Tailwatch v{} starting", VERSION);
     info!("Network-aware Tailscale management daemon");
+    info!("Blocked SSID: \"{}\"", args.blocked_ssid);
     info!("═══════════════════════════════════════");
 
     // Check if Tailscale is installed
@@ -34,8 +50,8 @@ async fn main() {
     }
     info!("✓ Tailscale found in PATH");
 
-    // Create daemon state
-    let state = DaemonState::new();
+    // Create daemon state with the blocked SSID
+    let state = DaemonState::new(args.blocked_ssid);
 
     // Create network monitor
     info!("Initializing network monitor...");

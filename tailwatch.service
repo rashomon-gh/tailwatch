@@ -7,7 +7,8 @@ ConditionPathExists=/usr/local/bin/tailwatch
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/tailwatch
+# Change --blocked-ssid to the WiFi SSID that should disable Tailscale
+ExecStart=/usr/local/bin/tailwatch --blocked-ssid tue-wpa2
 Restart=on-failure
 RestartSec=5
 

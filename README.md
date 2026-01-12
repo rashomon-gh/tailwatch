@@ -16,4 +16,17 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now tailwatch
 ```
 
+The blocked WiFi SSID can be configured by editing the `--blocked-ssid` argument in `/etc/systemd/system/tailwatch.service`:
+
+```ini
+ExecStart=/usr/local/bin/tailwatch --blocked-ssid YOUR_SSID
+```
+
+After modifying the service file, reload systemd:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart tailwatch
+```
+
 View logs with `journalctl -u tailwatch -f`.
