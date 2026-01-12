@@ -64,7 +64,7 @@ impl NetworkMonitor {
                             active_devices += 1;
                             match device_type {
                                 NM_DEVICE_TYPE_ETHERNET => {
-                                    info!("📷 Active ethernet device detected: {}", device_path);
+                                    info!("🔌 Active ethernet device detected: {}", device_path);
                                     network_state.ethernet_active = true;
                                 }
                                 NM_DEVICE_TYPE_WIFI => {
