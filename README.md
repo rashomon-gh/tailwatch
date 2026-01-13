@@ -1,6 +1,6 @@
 # Tailwatch
 
-Tailwatch is a network-aware daemon that automatically disables Tailscale when connected to specific networks—either when connected to WiFi SSID "tue-wpa2" or when using an ethernet connection. When these conditions no longer apply, it automatically re-enables Tailscale. The daemon polls NetworkManager every 2 seconds and includes a debounce delay to prevent rapid toggling.
+Tailwatch is a network-aware daemon that automatically disables Tailscale when connected to specific networks—either when connected to a specific WiFi SSID or when using an ethernet connection. When these conditions no longer apply, it automatically re-enables Tailscale. The daemon polls NetworkManager every 2 seconds and includes a debounce delay to prevent rapid toggling.
 
 **Tested on Fedora 43 only.**
 
