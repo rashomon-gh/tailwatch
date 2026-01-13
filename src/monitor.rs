@@ -64,15 +64,10 @@ impl NetworkMonitor {
                             active_devices += 1;
                             match device_type {
                                 NM_DEVICE_TYPE_ETHERNET => {
-                                    info!("🔌 Active ethernet device detected: {}", device_path);
                                     network_state.ethernet_active = true;
                                 }
                                 NM_DEVICE_TYPE_WIFI => {
                                     if let Some(ssid) = self.get_wifi_ssid(&device_path).await {
-                                        info!(
-                                            "📶 Active WiFi device: {}, SSID: {:?}",
-                                            device_path, ssid
-                                        );
                                         network_state.wifi_ssid = Some(ssid);
                                     }
                                 }
@@ -242,8 +237,8 @@ impl NetworkMonitor {
         loop {
             self.poll_count += 1;
 
-            // Log heartbeat every 30 polls (1 minute)
-            if self.poll_count % 30 == 0 {
+            // Log heartbeat every 60 polls (2 minutes)
+            if self.poll_count % 60 == 0 {
                 info!(
                     "💓 Heartbeat: Uptime: {} polls, Current state: ethernet={}, wifi={:?}",
                     self.poll_count,
@@ -272,13 +267,6 @@ impl NetworkMonitor {
                 if let Err(e) = self.state.evaluate_and_update().await {
                     error!("Failed to update Tailscale state: {}", e);
                 }
-            } else {
-                debug!(
-                    "Poll #{}: No change (ethernet={}, wifi={:?})",
-                    self.poll_count,
-                    network_state.ethernet_active,
-                    network_state.wifi_ssid
-                );
             }
 
             // Poll every 2 seconds
