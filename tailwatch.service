@@ -1,6 +1,6 @@
 [Unit]
 Description=Network-aware Tailscale daemon
-Documentation=https://github.com/yourusername/tailwatch
+Documentation=https://codeberg.org/rashomon/tailwatch
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=/usr/local/bin/tailwatch
