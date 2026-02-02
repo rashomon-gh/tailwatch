@@ -8,20 +8,30 @@ Tailwatch is a network-aware daemon that automatically disables Tailscale when c
 
 ## Running
 
-Install as a systemd service:
+### Generate systemd service file
+
+First, generate a systemd service file with your WiFi SSID:
 
 ```bash
 cargo build --release
 sudo cp target/release/tailwatch /usr/local/bin/
+./target/release/tailwatch generate-service --ssid YOUR_WIFI_SSID --output tailwatch.service
+```
+
+This will create a `tailwatch.service` file with your SSID pre-configured.
+
+### Install as a systemd service
+
+```bash
 sudo cp tailwatch.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now tailwatch
 ```
 
-The blocked WiFi SSID can be configured by editing the `--blocked-ssid` argument in `/etc/systemd/system/tailwatch.service`:
+Alternatively, you can manually configure the blocked WiFi SSID by editing the `--blocked-ssid` argument in `/etc/systemd/system/tailwatch.service`:
 
 ```ini
-ExecStart=/usr/local/bin/tailwatch --blocked-ssid YOUR_SSID
+ExecStart=/usr/local/bin/tailwatch run --blocked-ssid YOUR_SSID
 ```
 
 After modifying the service file, reload systemd:
@@ -32,3 +42,9 @@ sudo systemctl restart tailwatch
 ```
 
 View logs with `journalctl -u tailwatch -f`.
+
+### Running directly (without systemd)
+
+```bash
+./target/release/tailwatch run --blocked-ssid YOUR_WIFI_SSID
+```
