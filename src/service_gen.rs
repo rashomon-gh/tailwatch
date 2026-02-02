@@ -52,14 +52,3 @@ pub fn generate_service_file(ssid: &str, output_path: &Path) -> Result<(), Box<d
 
     Ok(())
 }
-
-/// Returns the service template as a string with the SSID placeholder replaced
-///
-/// # Arguments
-/// * `ssid` - The WiFi SSID to insert into the template
-///
-/// # Returns
-/// The service file content with the specified SSID
-pub fn get_service_template(ssid: &str) -> String {
-    SERVICE_TEMPLATE.replace("{{SSID}}", ssid)
-}
