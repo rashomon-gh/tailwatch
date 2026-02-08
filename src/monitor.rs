@@ -228,10 +228,12 @@ impl NetworkMonitor {
 
     /// Monitor for network changes and update state accordingly
     pub async fn monitor_network_changes(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let blocked_ssid = self.state.get_blocked_ssid().await;
+
         info!("═══════════════════════════════════════");
         info!("Starting network monitoring loop");
         info!("Polling interval: 2 seconds");
-        info!("Blocked SSID: \"tue-wpa2\"");
+        info!("Blocked SSID: \"{}\"", blocked_ssid);
         info!("═══════════════════════════════════════");
 
         loop {

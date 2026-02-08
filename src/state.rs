@@ -117,6 +117,12 @@ impl DaemonState {
         Ok(())
     }
 
+    /// Get the blocked SSID
+    pub async fn get_blocked_ssid(&self) -> String {
+        let state = self.current_state.lock().await;
+        state.blocked_ssid.clone()
+    }
+
     /// Initialize the state by checking the current network and setting Tailscale appropriately
     pub async fn initialize(&self, network: NetworkState) -> Result<(), TailscaleError> {
         let mut state = self.current_state.lock().await;
