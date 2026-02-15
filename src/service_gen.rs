@@ -10,8 +10,8 @@ ConditionPathExists=/usr/local/bin/tailwatch
 
 [Service]
 Type=simple
-# Change --blocked-ssid to the WiFi SSID that should disable Tailscale
-ExecStart=/usr/local/bin/tailwatch run --blocked-ssid {{SSID}}
+# Change --blocked-ssid to the WiFi SSID(s) that should disable Tailscale
+ExecStart=/usr/local/bin/tailwatch run {{SSID_ARGS}}
 Restart=on-failure
 RestartSec=5
 
@@ -35,17 +35,24 @@ StandardOutput=journal
 WantedBy=multi-user.target
 "#;
 
-/// Generates a systemd service file with the specified WiFi SSID
+/// Generates a systemd service file with the specified WiFi SSIDs
 ///
 /// # Arguments
-/// * `ssid` - The WiFi SSID that should be inserted into the service file
+/// * `ssids` - The WiFi SSIDs that should be inserted into the service file
 /// * `output_path` - The path where the generated service file should be written
 ///
 /// # Errors
 /// Returns an error if the file cannot be written
-pub fn generate_service_file(ssid: &str, output_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
-    // Replace the placeholder SSID in the template
-    let service_content = SERVICE_TEMPLATE.replace("{{SSID}}", ssid);
+pub fn generate_service_file(ssids: &[String], output_path: &Path) -> Result<(), Box<dyn std::error::Error>> {
+    // Build the command line arguments for all SSIDs
+    let ssid_args: String = ssids
+        .iter()
+        .map(|ssid| format!("--blocked-ssid {}", ssid))
+        .collect::<Vec<_>>()
+        .join(" ");
+
+    // Replace the placeholder SSID arguments in the template
+    let service_content = SERVICE_TEMPLATE.replace("{{SSID_ARGS}}", &ssid_args);
 
     // Write the generated service file
     fs::write(output_path, service_content)?;

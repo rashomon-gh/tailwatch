@@ -21,15 +21,15 @@ const VERSION: &str = env!("CARGO_PKG_VERSION");
 enum Command {
     /// Run the tailwatch daemon
     Run {
-        /// WiFi SSID that should trigger Tailscale to be disabled
-        #[arg(short, long)]
-        blocked_ssid: String,
+        /// WiFi SSID(s) that should trigger Tailscale to be disabled (can be specified multiple times)
+        #[arg(short, long, action = clap::ArgAction::Append, num_args = 1..)]
+        blocked_ssid: Vec<String>,
     },
     /// Generate a systemd service file
     GenerateService {
-        /// WiFi SSID to use in the service file
-        #[arg(short, long)]
-        ssid: String,
+        /// WiFi SSID(s) to use in the service file (can be specified multiple times)
+        #[arg(short, long, action = clap::ArgAction::Append, num_args = 1..)]
+        ssid: Vec<String>,
         /// Output path for the generated service file (default: tailwatch.service)
         #[arg(short, long, default_value = "tailwatch.service")]
         output: String,
@@ -54,7 +54,7 @@ async fn main() {
             info!("═══════════════════════════════════════");
             info!("Tailwatch v{} starting", VERSION);
             info!("Network-aware Tailscale management daemon");
-            info!("Blocked SSID: \"{}\"", blocked_ssid);
+            info!("Blocked SSIDs: {:?}", blocked_ssid);
             info!("═══════════════════════════════════════");
 
             // Check if Tailscale is installed
@@ -106,7 +106,7 @@ async fn main() {
             match service_gen::generate_service_file(&ssid, output_path) {
                 Ok(()) => {
                     println!("✓ Service file generated successfully: {}", output);
-                    println!("  Blocked SSID: \"{}\"", ssid);
+                    println!("  Blocked SSIDs: {:?}", ssid);
                     println!("\nTo install the service:");
                     println!("  sudo cp {} /etc/systemd/system/", output);
                     println!("  sudo systemctl daemon-reload");

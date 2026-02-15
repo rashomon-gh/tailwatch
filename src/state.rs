@@ -1,4 +1,5 @@
 use crate::tailscale::{tailscale_down, tailscale_up, TailscaleError};
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Mutex;
@@ -24,21 +25,22 @@ struct StateInner {
     tailscale_enabled: bool,
     last_change_time: Option<Instant>,
     pending_state: Option<bool>,
-    blocked_ssid: String,
+    blocked_ssids: HashSet<String>,
 }
 
 const DEBOUNCE_DURATION: Duration = Duration::from_secs(2);
 
 impl DaemonState {
-    pub fn new(blocked_ssid: String) -> Self {
-        info!("Initializing daemon state with blocked SSID: \"{}\"", blocked_ssid);
+    pub fn new(blocked_ssids: Vec<String>) -> Self {
+        let ssid_set: HashSet<String> = blocked_ssids.into_iter().collect();
+        info!("Initializing daemon state with blocked SSIDs: {:?}", ssid_set);
         Self {
             current_state: Arc::new(Mutex::new(StateInner {
                 network: NetworkState::default(),
                 tailscale_enabled: true,
                 last_change_time: None,
                 pending_state: None,
-                blocked_ssid,
+                blocked_ssids: ssid_set,
             })),
         }
     }
@@ -54,15 +56,19 @@ impl DaemonState {
     }
 
     /// Evaluate whether Tailscale should be disabled based on current network state
-    fn should_disable_tailscale(network: &NetworkState, blocked_ssid: &str) -> bool {
-        let should_disable = network.ethernet_active
-            || network.wifi_ssid.as_deref() == Some(blocked_ssid);
+    fn should_disable_tailscale(network: &NetworkState, blocked_ssids: &HashSet<String>) -> bool {
+        let is_blocked = network
+            .wifi_ssid
+            .as_ref()
+            .map(|ssid| blocked_ssids.contains(ssid))
+            .unwrap_or(false);
+        let should_disable = network.ethernet_active || is_blocked;
 
         if should_disable {
             debug!(
-                "Tailscale should be DISABLED: ethernet active={}, blocked wifi={}, blocked_ssid={:?}",
+                "Tailscale should be DISABLED: ethernet active={}, blocked wifi={}, blocked_ssids={:?}",
                 network.ethernet_active,
-                network.wifi_ssid.as_deref() == Some(blocked_ssid),
+                is_blocked,
                 network.wifi_ssid
             );
         } else {
@@ -75,8 +81,8 @@ impl DaemonState {
     /// Check the current state and update Tailscale if needed
     pub async fn evaluate_and_update(&self) -> Result<(), TailscaleError> {
         let mut state = self.current_state.lock().await;
-        let blocked_ssid = state.blocked_ssid.clone();
-        let should_disable = Self::should_disable_tailscale(&state.network, &blocked_ssid);
+        let blocked_ssids = state.blocked_ssids.clone();
+        let should_disable = Self::should_disable_tailscale(&state.network, &blocked_ssids);
 
         debug!(
             "Evaluating: ethernet={}, wifi_ssid={:?}, should_disable={}, current_enabled={}",
@@ -117,27 +123,33 @@ impl DaemonState {
         Ok(())
     }
 
-    /// Get the blocked SSID
-    pub async fn get_blocked_ssid(&self) -> String {
+    /// Get the list of blocked SSIDs
+    pub async fn get_blocked_ssids(&self) -> Vec<String> {
         let state = self.current_state.lock().await;
-        state.blocked_ssid.clone()
+        let mut ssids: Vec<String> = state.blocked_ssids.iter().cloned().collect();
+        ssids.sort();
+        ssids
     }
 
     /// Initialize the state by checking the current network and setting Tailscale appropriately
     pub async fn initialize(&self, network: NetworkState) -> Result<(), TailscaleError> {
         let mut state = self.current_state.lock().await;
         state.network = network.clone();
-        let blocked_ssid = state.blocked_ssid.clone();
+        let blocked_ssids = state.blocked_ssids.clone();
 
-        let should_disable = Self::should_disable_tailscale(&network, &blocked_ssid);
+        let should_disable = Self::should_disable_tailscale(&network, &blocked_ssids);
+        let is_blocked = network
+            .wifi_ssid
+            .as_ref()
+            .map(|ssid| blocked_ssids.contains(ssid))
+            .unwrap_or(false);
 
         info!("═══════════════════════════════════════");
         info!("Initial network assessment:");
         info!("  Ethernet active: {}", network.ethernet_active);
         info!("  WiFi SSID: {:?}", network.wifi_ssid);
-        info!("  Blocked SSID configured: \"{}\"", blocked_ssid);
-        info!("  Blocked SSID detected: {}",
-            network.wifi_ssid.as_deref() == Some(&blocked_ssid));
+        info!("  Blocked SSIDs configured: {:?}", blocked_ssids);
+        info!("  Blocked SSID detected: {}", is_blocked);
         info!("  Should disable Tailscale: {}", should_disable);
         info!("═══════════════════════════════════════");
 
@@ -161,7 +173,7 @@ impl DaemonState {
 
 impl Default for DaemonState {
     fn default() -> Self {
-        Self::new("tue-wpa2".to_string())
+        Self::new(vec!["tue-wpa2".to_string()])
     }
 }
 
@@ -175,14 +187,14 @@ async fn apply_pending_state_impl(state: Arc<Mutex<StateInner>>) {
         return;
     };
 
-    let blocked_ssid = inner.blocked_ssid.clone();
-    debug!("Applying pending state: enable={}, blocked_ssid={}", desired_enabled, blocked_ssid);
+    let blocked_ssids = inner.blocked_ssids.clone();
+    debug!("Applying pending state: enable={}, blocked_ssids={:?}", desired_enabled, blocked_ssids);
 
     // Clear the pending state
     inner.pending_state = None;
 
     // Check if the desired state still matches what we want
-    let should_disable = DaemonState::should_disable_tailscale(&inner.network, &blocked_ssid);
+    let should_disable = DaemonState::should_disable_tailscale(&inner.network, &blocked_ssids);
     let current_desired = !should_disable;
 
     if current_desired != desired_enabled {

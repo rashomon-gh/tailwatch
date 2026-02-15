@@ -228,12 +228,12 @@ impl NetworkMonitor {
 
     /// Monitor for network changes and update state accordingly
     pub async fn monitor_network_changes(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let blocked_ssid = self.state.get_blocked_ssid().await;
+        let blocked_ssids = self.state.get_blocked_ssids().await;
 
         info!("═══════════════════════════════════════");
         info!("Starting network monitoring loop");
         info!("Polling interval: 2 seconds");
-        info!("Blocked SSID: \"{}\"", blocked_ssid);
+        info!("Blocked SSIDs: {:?}", blocked_ssids);
         info!("═══════════════════════════════════════");
 
         loop {
